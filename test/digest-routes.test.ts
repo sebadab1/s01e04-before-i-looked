@@ -32,12 +32,21 @@ function jobsInPage(html: string, jobs: string[]) {
     .map(({ job }) => job);
 }
 
-function rowsFromJson(payload: unknown): Array<{ job: string }> {
-  if (typeof payload !== 'object' || payload === null || !('rows' in payload) || !Array.isArray(payload.rows)) {
-    throw new Error('Expected digest JSON to contain a rows array');
+type DigestJson = { rows: Array<{ job: string }>; badLines: number };
+
+function digestFromJson(payload: unknown): DigestJson {
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('rows' in payload) ||
+    !Array.isArray(payload.rows) ||
+    !('badLines' in payload) ||
+    typeof payload.badLines !== 'number'
+  ) {
+    throw new Error('Expected digest JSON to contain rows and badLines');
   }
 
-  return payload.rows as Array<{ job: string }>;
+  return { rows: payload.rows as Array<{ job: string }>, badLines: payload.badLines };
 }
 
 describe('digest routes', () => {
@@ -59,36 +68,37 @@ describe('digest routes', () => {
     expect(apiResponse.status).toBe(200);
 
     const pageJobs = jobsInPage(await pageResponse.text(), expectedJobs);
-    const apiRows = rowsFromJson(await apiResponse.json());
-    expect(apiRows.map(({ job }) => job)).toEqual(pageJobs);
+    const digest = digestFromJson(await apiResponse.json());
+    expect(digest.rows.map(({ job }) => job)).toEqual(pageJobs);
+    expect(digest.badLines).toBe(1);
     expect(pageJobs).toEqual(expectedJobs);
   });
 
   it('returns 404 for a night with no file from both routes', async () => {
     const app = createApp({ ...config, runsDir });
 
-    const pageResponse = await app.request('/digest/missing-night');
-    const apiResponse = await app.request('/api/digest/missing-night');
+    const pageResponse = await app.request('/digest/2026-10-29');
+    const apiResponse = await app.request('/api/digest/2026-10-29');
 
     expect(pageResponse.status).toBe(404);
     expect(apiResponse.status).toBe(404);
   });
 
   it('renders an empty night and returns no JSON rows', async () => {
-    writeFileSync(join(runsDir, 'empty-night.jsonl'), '');
+    writeFileSync(join(runsDir, '2026-10-30.jsonl'), '');
     const app = createApp({ ...config, runsDir });
 
-    const pageResponse = await app.request('/digest/empty-night');
-    const apiResponse = await app.request('/api/digest/empty-night');
+    const pageResponse = await app.request('/digest/2026-10-30');
+    const apiResponse = await app.request('/api/digest/2026-10-30');
 
     expect(pageResponse.status).toBe(200);
     expect(await pageResponse.text()).toContain('nothing ran');
     expect(apiResponse.status).toBe(200);
-    expect(rowsFromJson(await apiResponse.json())).toEqual([]);
+    expect(digestFromJson(await apiResponse.json()).rows).toEqual([]);
   });
 
   it('keeps valid rows when a night contains a malformed line', async () => {
-    const night = 'malformed-night';
+    const night = '2026-10-31';
     writeFileSync(
       join(runsDir, `${night}.jsonl`),
       [
@@ -109,6 +119,8 @@ describe('digest routes', () => {
     expect(pageResponse.status).toBe(200);
     expect(jobsInPage(await pageResponse.text(), ['surviving/job'])).toEqual(['surviving/job']);
     expect(apiResponse.status).toBe(200);
-    expect(rowsFromJson(await apiResponse.json()).map(({ job }) => job)).toEqual(['surviving/job']);
+    const digest = digestFromJson(await apiResponse.json());
+    expect(digest.rows.map(({ job }) => job)).toEqual(['surviving/job']);
+    expect(digest.badLines).toBe(1);
   });
 });
