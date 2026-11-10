@@ -12,11 +12,11 @@ export function registerDigestApi(app: Hono, config: Pick<RigConfig, 'runsDir'>)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(night)) return c.notFound();
 
     try {
-      const { rows } = readNight(config.runsDir, night);
+      const { rows, badLines } = readNight(config.runsDir, night);
       const sortedRows = [...rows].sort((left, right) =>
         left.job < right.job ? -1 : left.job > right.job ? 1 : 0,
       );
-      return c.json(sortedRows);
+      return c.json({ rows: sortedRows, badLines });
     } catch (error) {
       if (isMissingFile(error)) return c.notFound();
       throw error;
