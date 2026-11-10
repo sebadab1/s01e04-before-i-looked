@@ -16,6 +16,8 @@ function isMissingFile(error: unknown): boolean {
 export function registerDigestPage(app: Hono, config: RigConfig): void {
   app.get('/digest/:night', (c) => {
     const night = c.req.param('night');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(night)) return c.notFound();
+
     let digest;
 
     try {
